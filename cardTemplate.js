@@ -1,3 +1,12 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Load signature once at module level ──────────────────────────────────────
+const signatureBase64 = `data:image/png;base64,${fs.readFileSync(path.join(__dirname, 'assets', 'sign.png')).toString('base64')}`;
+
 /**
  * Builds the KPCC membership card JSX object for Satori.
  * Satori requires inline styles only — no CSS classes.
@@ -19,7 +28,6 @@
  * @param {string} data.acNo
  * @param {string} data.constituency
  * @param {string|null} data.photoBase64  – full data-URI, e.g. "data:image/jpeg;base64,..."
- * @param {string|null} data.signatureBase64
  * @param {string|null} data.bgBase64     – full data-URI of the background image
  * @returns {Object} Satori-compatible React-element tree
  */
@@ -31,7 +39,6 @@ export function buildCardElement({
   acNo = "",
   constituency = "",
   photoBase64 = null,
-  signatureBase64 = null,
   bgBase64 = null,
 }) {
   const CARD_W = 600;
@@ -85,7 +92,7 @@ export function buildCardElement({
         height: 140,
         border: "2px solid #555",
         borderRadius: 4,
-        background: "#000",          // solid black when no photo
+        background: "#000",
         marginRight: 22,
         flexShrink: 0,
         overflow: "hidden",
@@ -114,30 +121,28 @@ export function buildCardElement({
   };
 
   // ── signature image (sits just above the "Signature" label in the bg) ───
-  const SignatureImage = signatureBase64
-    ? {
-        type: "div",
-        props: {
-          style: {
-            position: "absolute",
-            bottom: 30,           // sit just above the "Signature" text in the bg
-            right: 24,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-          },
-          children: {
-            type: "img",
-            props: {
-              src: signatureBase64,
-              width: 90,
-              height: 34,
-              style: { objectFit: "contain" },
-            },
-          },
-        },
-      }
-    : { type: "div", props: { style: {}, children: "" } };
+  const SignatureImage = {
+  type: "div",
+  props: {
+    style: {
+      position: "absolute",
+      bottom: 30,
+      right: 60,        // was 24 — shifts it left
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+    },
+    children: {
+      type: "img",
+      props: {
+        src: signatureBase64,
+        width: 120,       // was 90 — bigger
+        height: 45,       // was 34 — bigger
+        style: { objectFit: "contain" },
+      },
+    },
+  },
+};
 
   // ── root card ────────────────────────────────────────────────────────────
   return {
@@ -175,7 +180,6 @@ export function buildCardElement({
           props: {
             style: {
               position: "absolute",
-              // Push below the header area in the background image (~130px tall)
               top: 130,
               left: 0,
               width: CARD_W,
@@ -211,7 +215,7 @@ export function buildCardElement({
           },
         },
 
-        // ── 3. Optional signature image above the bg "Signature" label ───
+        // ── 3. Signature image above the bg "Signature" label ────────────
         SignatureImage,
       ],
     },

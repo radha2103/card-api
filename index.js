@@ -1,7 +1,4 @@
-// import dotenv from "dotenv";
-// dotenv.config();
 import "dotenv/config";
-
 
 import { v2 as cloudinary } from "cloudinary";
 cloudinary.config({
@@ -17,10 +14,13 @@ import { readFile } from "fs/promises";
 import { buildCardElement } from "./cardTemplate.js";
 
 const app = express();
-app.use(express.json({ limit: "10mb" })); // allow base64 photo payloads
+app.use(express.json({ limit: "10mb" }));
 
-// ── Load background image once at startup ─────────────────────────────────
+// ── Load assets once at startup ───────────────────────────────────────────
 let BG_BASE64 = null;
+let LOGO_BASE64 = null;
+let FONTS = null;
+
 async function loadBg() {
   const bgPath = new URL("./assets/bg.png", import.meta.url).pathname;
   try {
@@ -28,10 +28,10 @@ async function loadBg() {
     BG_BASE64 = `data:image/png;base64,${data.toString("base64")}`;
     console.log("✅ Loaded assets/bg.png as background");
   } catch {
-    console.warn("⚠️  assets/bg.png not found — card will have no background. Place bg.png in assets/");
+    console.warn("⚠️  assets/bg.png not found — card will have no background.");
   }
 }
-let LOGO_BASE64 = null;
+
 async function loadLogo() {
   const logoPath = new URL("./assets/inc.jpg", import.meta.url).pathname;
   try {
@@ -43,34 +43,19 @@ async function loadLogo() {
   }
 }
 
-// ── Load background image once at startup ─────────────────────────────────
-BG_BASE64 = null;
-async function loadBackground() {
-  const bgPath = new URL("./assets/bg.png", import.meta.url).pathname;
-  try {
-    const data = await readFile(bgPath);
-    BG_BASE64 = `data:image/png;base64,${data.toString("base64")}`;
-    console.log("✅ Loaded assets/bg.png as background");
-  } catch {
-    console.warn("⚠️  assets/bg.png not found — falling back to CSS gradients.");
-  }
-}
-// Satori requires at least one font. We bundle Noto Sans from the system or
-// you can drop any .ttf into the project root and update the path below.
-let FONTS;
 async function loadFonts() {
-  // Try to load from common system font locations (Linux / macOS / Windows)
   const candidates = [
-    // Google Noto Sans (if you place it in the project)
     new URL("./NotoSans-Regular.ttf", import.meta.url).pathname,
-    new URL("./NotoSans-Bold.ttf", import.meta.url).pathname,
-    // Linux system fonts
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
     "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-    // macOS system fonts
     "/System/Library/Fonts/Helvetica.ttc",
-    // Windows
     "C:\\Windows\\Fonts\\arial.ttf",
+  ];
+
+  const boldCandidates = [
+    new URL("./NotoSans-Bold.ttf", import.meta.url).pathname,
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/noto/NotoSans-Bold.ttf",
   ];
 
   let regularData = null;
@@ -80,76 +65,54 @@ async function loadFonts() {
     try {
       regularData = await readFile(path);
       break;
-    } catch {
-      // try next
-    }
+    } catch { /* try next */ }
   }
-
-  const boldCandidates = [
-    new URL("./NotoSans-Bold.ttf", import.meta.url).pathname,
-    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-    "/usr/share/fonts/noto/NotoSans-Bold.ttf",
-  ];
 
   for (const path of boldCandidates) {
     try {
       boldData = await readFile(path);
       break;
-    } catch {
-      // try next
-    }
+    } catch { /* try next */ }
   }
 
-  FONTS = [];
-
-  if (regularData) {
-    FONTS.push({ name: "sans-serif", data: regularData, weight: 400, style: "normal" });
-    FONTS.push({ name: "sans-serif", data: regularData, weight: 500, style: "normal" });
-  }
-  if (boldData) {
-    FONTS.push({ name: "sans-serif", data: boldData, weight: 700, style: "normal" });
-    FONTS.push({ name: "sans-serif", data: boldData, weight: 900, style: "normal" });
-  } else if (regularData) {
-    // Fallback: use regular for bold weights
-    FONTS.push({ name: "sans-serif", data: regularData, weight: 700, style: "normal" });
-    FONTS.push({ name: "sans-serif", data: regularData, weight: 900, style: "normal" });
-  }
-
-  if (!FONTS.length) {
+  if (!regularData) {
     console.warn(
       "⚠️  No system fonts found. Place NotoSans-Regular.ttf and NotoSans-Bold.ttf " +
-        "in the project root, or install the noto-fonts package."
+      "in the project root, or install the noto-fonts package."
     );
-    // Satori will throw if no fonts are provided — re-throw at request time
     FONTS = null;
-  } else {
-    console.log(`✅ Loaded ${FONTS.length} font weight(s) for Satori`);
+    return;
   }
+
+  FONTS = [
+    { name: "sans-serif", data: regularData, weight: 400, style: "normal" },
+    { name: "sans-serif", data: regularData, weight: 500, style: "normal" },
+    { name: "sans-serif", data: boldData ?? regularData, weight: 700, style: "normal" },
+    { name: "sans-serif", data: boldData ?? regularData, weight: 900, style: "normal" },
+  ];
+
+  console.log(`✅ Loaded ${FONTS.length} font weight(s) for Satori`);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /generate-card
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /generate-card ───────────────────────────────────────────────────
 /**
  * Request body (JSON):
  * {
- *   "name":           "Rahul Kumar",
- *   "membershipId":   "KA-2024-001234",
- *   "epicNo":         "ABC1234567",
- *   "phoneNumber":    "+91 98765 43210",
- *   "acNo":           "143",
- *   "constituency":   "Shivajinagar",
- *   "photoBase64":    "data:image/jpeg;base64,...",   // optional
- *   "signatureBase64":"data:image/png;base64,..."    // optional
+ *   "name":          "Rahul Kumar",
+ *   "membershipId":  "KA-2024-001234",
+ *   "epicNo":        "ABC1234567",
+ *   "phoneNumber":   "+91 98765 43210",
+ *   "acNo":          "143",
+ *   "constituency":  "Shivajinagar",
+ *   "photoBase64":   "data:image/jpeg;base64,..."   // optional
  * }
  *
- * Response: PNG image (image/png)
+ * Response: { url: "https://res.cloudinary.com/..." }
  */
 app.post("/generate-card", async (req, res) => {
   if (!FONTS) {
     return res.status(500).json({
-      error:
-        "Fonts not loaded. Place NotoSans-Regular.ttf in the project root and restart.",
+      error: "Fonts not loaded. Place NotoSans-Regular.ttf in the project root and restart.",
     });
   }
 
@@ -161,16 +124,14 @@ app.post("/generate-card", async (req, res) => {
     acNo,
     constituency,
     photoBase64 = null,
-    signatureBase64 = null,
   } = req.body;
 
-  // Basic validation
   if (!name && !membershipId) {
     return res.status(400).json({ error: "Provide at least name or membershipId." });
   }
 
   try {
-    // 1. Build JSX-like element tree
+    // 1. Build element tree (signature is loaded inside cardTemplate.js)
     const element = buildCardElement({
       name,
       membershipId,
@@ -179,7 +140,6 @@ app.post("/generate-card", async (req, res) => {
       acNo,
       constituency,
       photoBase64,
-      signatureBase64,
       logoBase64: LOGO_BASE64,
       bgBase64: BG_BASE64,
     });
@@ -193,42 +153,38 @@ app.post("/generate-card", async (req, res) => {
 
     // 3. Render SVG → PNG via resvg-js
     const resvg = new Resvg(svg, {
-      fitTo: { mode: "width", value: 600 },
+      fitTo: { mode: "width", value: 1200 },
     });
-    const pngData = resvg.render();
-    const pngBuffer = pngData.asPng();
+    const pngBuffer = resvg.render().asPng();
 
+    // 4. Upload to Cloudinary
     const imageUrl = await new Promise((resolve, reject) => {
-  cloudinary.uploader.upload_stream(
-    { folder: "kpcc-cards" },
-    (error, result) => {
-      if (error) return reject(error);
-      resolve(result.secure_url);
-    }
-  ).end(pngBuffer);
-});
+      cloudinary.uploader.upload_stream(
+        { folder: "kpcc-cards" },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result.secure_url);
+        }
+      ).end(pngBuffer);
+    });
 
-res.json({ url: imageUrl });
+    res.json({ url: imageUrl });
   } catch (err) {
     console.error("Card generation error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Health check
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Health check ──────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Start
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Start ─────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 
-loadFonts().then(() => loadLogo()).then(() => loadBg()).then(() => {
+Promise.all([loadFonts(), loadLogo(), loadBg()]).then(() => {
   app.listen(PORT, () => {
     console.log(`🚀 KPCC Card API running on http://localhost:${PORT}`);
-    console.log(`   POST /generate-card  → returns PNG`);
+    console.log(`   POST /generate-card  → returns { url }`);
     console.log(`   GET  /health         → status check`);
   });
 });
